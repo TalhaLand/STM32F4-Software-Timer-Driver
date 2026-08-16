@@ -1,31 +1,37 @@
 # STM32F4 Software Timer Driver
 
-STM32F4 mikrodenetleyicilerinde bir Hardware Timer interrupt'ı kullanarak **non-blocking Software Timer** oluşturmayı sağlayan basit ve modüler bir C sürücüsüdür.
+STM32F4 mikrodenetleyicilerinde bir Hardware Timer interrupt'ı kullanarak **non-blocking Software Timer** oluşturmayı sağlayan modüler bir C sürücüsüdür.
 
-Driver, örnekte **TIM11** üzerinden 1 ms'lik bir zaman tabanı oluşturur. Bu zaman tabanı kullanılarak aynı Hardware Timer üzerinden birden fazla bağımsız Software Timer çalıştırılabilir.
+Driver, örnekte **TIM11** üzerinden 1 ms'lik bir zaman tabanı oluşturur. Bu zaman tabanı kullanılarak tek bir Hardware Timer üzerinden birden fazla bağımsız Software Timer çalıştırılabilir.
+
+`HAL_Delay()` gibi CPU'yu bekleten yöntemler yerine, uygulamanın diğer işlemleri çalışmaya devam ederken belirli sürelerin takip edilmesini sağlar.
+
+---
 
 # 📚 İçindekiler
 
 - [Özellikler](#-özellikler)
-- [Hızlı Başlangıç](#-hızlı-başlangıç)
-  - [1. Driver Dosyalarını Projeye Ekleme](#1-driver-dosyalarını-projeye-ekleme)
-  - [2. TIM11'i Yapılandırma](#2-tim11i-yapılandırma)
-  - [3. Timer'ı Başlatma](#3-timerı-başlatma)
-  - [4. Software Timer Oluşturma](#4-software-timer-oluşturma)
-  - [5. Timer'ı Kontrol Etme](#5-timerı-kontrol-etme)
-- [Driver Nasıl Çalışıyor?](#-driver-nasıl-çalışıyor)
-- [Interrupt ve msTick](#-interrupt-ve-mstick)
-- [STimer_t Yapısı](#-stimer_t-yapısı)
-- [Driver Fonksiyonları](#-driver-fonksiyonları)
-- [Birden Fazla Software Timer](#-birden-fazla-software-timer)
-- [uint32_t Overflow](#-uint32_t-overflow)
-- [Örnek Kullanım](#-örnek-kullanım)
-- [Kodu Tekrar Yazmak İstersen](#-kodu-tekrar-yazmak-istersen)
-- [Dikkat Edilmesi Gerekenler](#️-dikkat-edilmesi-gerekenler)
-- [Proje Yapısı](#-proje-yapısı)
-- [Sonuç](#-sonuç)
+- [1. Hızlı Başlangıç](#1--hızlı-başlangıç)
+- [2. Driver Dosyalarını Projeye Ekleme](#2--driver-dosyalarını-projeye-ekleme)
+- [3. STM32CubeMX Ayarları](#3--stm32cubemx-ayarları)
+- [4. Timer Frekansı ve 1 ms Hesabı](#4--timer-frekansı-ve-1-ms-hesabı)
+- [5. Driver'ı Başlatma](#5--driverı-başlatma)
+- [6. main.c Kullanımı](#6--mainc-kullanımı)
+- [7. Driver'ın Çalışma Mantığı](#7--driverın-çalışma-mantığı)
+- [8. STimer_t Yapısı](#8--stimer_t-yapısı)
+- [9. Driver Fonksiyonları](#9--driver-fonksiyonları)
+- [10. Birden Fazla Software Timer](#10--birden-fazla-software-timer)
+- [11. Overflow Koruması](#11--overflow-koruması)
+- [12. Neden Bu Mimariyi Kullandık?](#12--neden-bu-mimariyi-kullandık)
+- [13. Kodu Tekrar Yazmak İçin](#13--kodu-tekrar-yazmak-için)
+- [14. Dikkat Edilmesi Gerekenler](#14--dikkat-edilmesi-gerekenler)
+- [15. Geliştirilebilecek Kısımlar](#15--geliştirilebilecek-kısımlar)
+- [16. Proje Yapısı](#16--proje-yapısı)
+- [17. Sonuç](#17--sonuç)
 
-## Özellikler
+---
+
+# ✨ Özellikler
 
 - Non-blocking Software Timer
 - Hardware Timer interrupt tabanlı çalışma
@@ -37,22 +43,77 @@ Driver, örnekte **TIM11** üzerinden 1 ms'lik bir zaman tabanı oluşturur. Bu 
 
 ---
 
-# 🚀 Hızlı Başlangıç
+# 1. 🚀 Hızlı Başlangıç
 
-Driver'ı kendi STM32CubeIDE projenize eklemek için aşağıdaki adımlar yeterlidir.
+Driver'ı kendi STM32CubeIDE projenizde kullanmak için temel olarak şu adımlar yeterlidir:
 
-## 1. Driver dosyalarını ekleyin
+```text
+Software_Timer.c / Software_Timer.h
+            ↓
+      STM32CubeMX Timer
+            ↓
+       1 ms Interrupt
+            ↓
+   #include "Software_Timer.h"
+            ↓
+        STimer_t
+            ↓
+   software_Timer_Init()
+            ↓
+  Software_Timer_Set_Time()
+            ↓
+Software_Timer_Clock_Check_Elapsed_Time()
+```
 
-Projeye:
+En basit kullanım:
+
+```c
+STimer_t timer;
+
+software_Timer_Init(&htim11);
+
+Software_Timer_Set_Time(&timer, 1000);
+
+while (1)
+{
+    if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
+    {
+        // 1 saniye geçti
+
+        Software_Timer_Set_Time(&timer, 1000);
+    }
+}
+```
+
+---
+
+# 2. 📁 Driver Dosyalarını Projeye Ekleme
+
+Repository içerisindeki:
 
 ```text
 Software_Timer.c
 Software_Timer.h
 ```
 
-dosyalarını ekleyin.
+dosyalarını STM32CubeIDE projenize ekleyin.
 
-Kullanacağınız `.c` dosyasına:
+Örneğin:
+
+```text
+MyProject/
+│
+├── Core/
+│   ├── Inc/
+│   │   └── Software_Timer.h
+│   │
+│   └── Src/
+│       └── Software_Timer.c
+│
+└── ...
+```
+
+Daha sonra driver'ı kullanacağınız `.c` dosyasına:
 
 ```c
 #include "Software_Timer.h"
@@ -62,30 +123,50 @@ ekleyin.
 
 ---
 
-## 2. TIM11'i yapılandırın
+# 3. ⚙️ STM32CubeMX Ayarları
 
-Bu örnekte Software Timer için **TIM11** kullanılmaktadır.
+Driver'ın çalışabilmesi için bir Hardware Timer'ın **1 ms periyotla interrupt** üretmesi gerekir.
+
+Bu projede örnek olarak **TIM11** kullanılmaktadır.
 
 CubeMX'te:
 
 ```text
-TIM11 → Activated
+TIM11 → Enabled
 TIM11 Global Interrupt → Enabled
 ```
 
 olmalıdır.
 
-Timer'ın **1 ms'de bir interrupt** üretmesi gerekir.
+> **Önemli:** Interrupt aktif değilse `HAL_TIM_PeriodElapsedCallback()` çalışmaz ve `msTick` artmaz.
 
-Bu projedeki örnekte:
+---
+
+# 4. ⏱️ Timer Frekansı ve 1 ms Hesabı
+
+Bu projedeki örnekte Timer Clock:
 
 ```text
-Timer Clock = 50 MHz
-PSC = 49
-ARR = 999
+50 MHz
 ```
 
-kullanılmıştır.
+olarak kullanılmaktadır.
+
+1 ms zaman tabanı için:
+
+```text
+Prescaler (PSC) = 49
+Counter Period (ARR) = 999
+```
+
+kullanılır.
+
+Timer frekansı:
+
+```text
+F_interrupt =
+F_timer / ((PSC + 1) × (ARR + 1))
+```
 
 Hesap:
 
@@ -100,174 +181,31 @@ Dolayısıyla:
 1 / 1000 = 1 ms
 ```
 
+elde edilir.
+
+Sonuç:
+
+```text
+TIM11 → Her 1 ms'de bir interrupt
+```
+
 ---
 
-## 3. Timer'ı başlatın
+# 5. ▶️ Driver'ı Başlatma
 
-`main.c` içerisinde:
+Öncelikle bir Software Timer oluşturulur:
+
+```c
+STimer_t timer;
+```
+
+Daha sonra CubeMX tarafından oluşturulan Timer handle'ı driver'a gönderilir:
 
 ```c
 software_Timer_Init(&htim11);
 ```
 
-çağrılır.
-
----
-
-## 4. Software Timer oluşturun
-
-```c
-STimer_t timer;
-```
-
-Timer'a süre verin:
-
-```c
-Software_Timer_Set_Time(&timer, 1000);
-```
-
-Burada `1000` milisaniyedir:
-
-```text
-1000 ms = 1 saniye
-```
-
----
-
-## 5. Timer'ı kontrol edin
-
-```c
-while (1)
-{
-    if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
-    {
-        // 1 saniye geçti
-
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-
-        Software_Timer_Set_Time(&timer, 1000);
-    }
-}
-```
-
-Artık LED her 1 saniyede bir toggle edilebilir.
-
----
-
-# 🧠 Driver Nasıl Çalışıyor?
-
-Driver'ın temelinde TIM11 tarafından oluşturulan **1 ms'lik zaman tabanı** bulunur.
-
-Her timer interrupt'ında:
-
-```c
-msTick++;
-```
-
-yapılır.
-
-Örneğin:
-
-```text
-1 ms     → msTick = 1
-10 ms    → msTick = 10
-100 ms   → msTick = 100
-1000 ms  → msTick = 1000
-```
-
-Software Timer ise bu değeri kullanarak geçen zamanı hesaplar.
-
-Temel mantık:
-
-```text
-TIM11
-  ↓
-1 ms Interrupt
-  ↓
-msTick++
-  ↓
-Software Timer
-  ↓
-Geçen süreyi kontrol et
-  ↓
-Süre dolduysa → true
-```
-
-Bu sayede `HAL_Delay()` kullanmadan zaman kontrollü işlemler yapılabilir.
-
----
-
-# ⚡ Interrupt ve `msTick`
-
-Driver'ın zaman tabanı:
-
-```c
-uint32_t msTick = 0;
-```
-
-değişkenidir.
-
-TIM11 interrupt'ı geldiğinde callback içerisinde:
-
-```c
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM11)
-    {
-        msTick++;
-    }
-}
-```
-
-çalışır.
-
-Bu nedenle **TIM11 interrupt'ının aktif olması driver için zorunludur.**
-
----
-
-# 📦 `STimer_t` Yapısı
-
-Her Software Timer için aşağıdaki yapı kullanılır:
-
-```c
-typedef struct
-{
-    uint32_t startTime;
-    uint32_t intervalTime;
-    bool activated;
-
-} STimer_t;
-```
-
-Alanların görevleri:
-
-| Alan | Açıklama |
-|---|---|
-| `startTime` | Timer'ın başlatıldığı andaki `msTick` değeri |
-| `intervalTime` | Beklenecek süre, ms cinsinden |
-| `activated` | Timer'ın aktif olup olmadığını belirtir |
-
-Örneğin:
-
-```c
-STimer_t timer;
-
-Software_Timer_Set_Time(&timer, 500);
-```
-
-çağrıldığında timer'ın başlangıç zamanı kaydedilir ve `500 ms` beklemesi gerektiği belirtilir.
-
----
-
-# 🔧 Driver Fonksiyonları
-
-## `software_Timer_Init()`
-
-```c
-void software_Timer_Init(TIM_HandleTypeDef *htim);
-```
-
-Hardware Timer'ı interrupt modunda başlatır.
+Bu fonksiyon Hardware Timer'ı interrupt modunda başlatır.
 
 Temel olarak:
 
@@ -275,199 +213,27 @@ Temel olarak:
 HAL_TIM_Base_Start_IT(htim);
 ```
 
-kullanılır.
+fonksiyonunu kullanır.
 
-Kullanım:
-
-```c
-software_Timer_Init(&htim11);
-```
-
-Bu fonksiyon **Software Timer'ı değil, Hardware Timer'ı başlatır.**
-
----
-
-## `Software_Timer_Set_Time()`
-
-```c
-void Software_Timer_Set_Time(
-    STimer_t *STimer,
-    uint32_t intervalMs
-);
-```
-
-Software Timer'ı başlatır veya yeniden kurar.
-
-Örneğin:
+Ardından Software Timer'a istenen süre verilir:
 
 ```c
 Software_Timer_Set_Time(&timer, 1000);
 ```
 
-çağrıldığında:
+Burada:
 
 ```text
-startTime    → mevcut msTick
-intervalTime → 1000 ms
-activated    → true
+1000 ms = 1 saniye
 ```
 
-olarak ayarlanır.
-
-Periyodik bir timer kullanmak istiyorsanız süre dolduktan sonra bu fonksiyonu tekrar çağırabilirsiniz.
+anlamına gelir.
 
 ---
 
-## `Software_Timer_Get_Time()`
+# 6. 🧩 main.c Kullanımı
 
-```c
-uint32_t Software_Timer_Get_Time(void);
-```
-
-Mevcut `msTick` değerini döndürür.
-
-Driver içerisinde zaman bilgisini almak için kullanılır.
-
----
-
-## `Software_Timer_Clock_Check_Elapsed_Time()`
-
-```c
-bool Software_Timer_Clock_Check_Elapsed_Time(
-    STimer_t *STimer
-);
-```
-
-Timer'ın süresinin dolup dolmadığını kontrol eder.
-
-Süre dolduysa:
-
-```c
-true
-```
-
-döndürür.
-
-Süre dolmadıysa:
-
-```c
-false
-```
-
-döndürür.
-
-Örnek:
-
-```c
-if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
-{
-    // Süre doldu
-}
-```
-
-Bu fonksiyon `while(1)` içerisinde tekrar tekrar çağrılabilir.
-
----
-
-## `Software_Timer_Disable()`
-
-```c
-void Software_Timer_Disable(STimer_t *STimer);
-```
-
-İlgili Software Timer'ı pasif hale getirir.
-
-```c
-Software_Timer_Disable(&timer);
-```
-
-Bu işlem Hardware Timer'ı durdurmaz. Sadece ilgili Software Timer'ın çalışmasını durdurur.
-
----
-
-# 🔢 Birden Fazla Software Timer
-
-Tek bir Hardware Timer kullanılarak birden fazla Software Timer oluşturulabilir.
-
-Örneğin:
-
-```c
-STimer_t timer_1s;
-STimer_t timer_500ms;
-
-Software_Timer_Set_Time(&timer_1s, 1000);
-Software_Timer_Set_Time(&timer_500ms, 500);
-```
-
-Daha sonra:
-
-```c
-while (1)
-{
-    if (Software_Timer_Clock_Check_Elapsed_Time(&timer_1s))
-    {
-        // 1 saniyelik görev
-
-        Software_Timer_Set_Time(&timer_1s, 1000);
-    }
-
-    if (Software_Timer_Clock_Check_Elapsed_Time(&timer_500ms))
-    {
-        // 500 ms'lik görev
-
-        Software_Timer_Set_Time(&timer_500ms, 500);
-    }
-}
-```
-
-Burada iki timer da aynı `msTick` değerini kullanır:
-
-```text
-             TIM11
-               │
-               ▼
-             msTick
-            /      \
-           /        \
-          ▼          ▼
-      Timer 1s    Timer 500ms
-```
-
-Her timer kendi `startTime` ve `intervalTime` değerine sahip olduğu için birbirinden bağımsız çalışır.
-
----
-
-# 🔄 `uint32_t` Overflow
-
-`msTick` değişkeni `uint32_t` olduğu için maksimum değeri:
-
-```text
-4,294,967,295
-```
-
-olabilir.
-
-1 ms çözünürlükte yaklaşık **49.7 gün** sonra değer tekrar `0`'a döner.
-
-```text
-4,294,967,295
-        ↓
-        0
-        ↓
-        1
-        ↓
-        2
-```
-
-Driver'daki elapsed-time kontrolü bu overflow durumunu dikkate alacak şekilde hazırlanmıştır.
-
-Böylece sistem uzun süre çalıştığında `msTick` değerinin sıfırlanması Software Timer'ın yanlış çalışmasına neden olmaz.
-
----
-
-# 🧪 Örnek Kullanım
-
-Aşağıdaki örnekte LED'in her 1 saniyede bir toggle edilmesi gösterilmiştir:
+Tam bir kullanım örneği:
 
 ```c
 #include "main.h"
@@ -506,41 +272,65 @@ int main(void)
 }
 ```
 
-Burada:
+Bu örnekte LED her 1 saniyede bir toggle edilir.
 
-```text
-TIM11 → 1 ms zaman tabanı
-       ↓
-    msTick
-       ↓
-  ledTimer
-       ↓
-   1000 ms
-       ↓
-    LED Toggle
-```
-
-şeklinde çalışır.
+Timer'ın çalışması için `while(1)` içerisinde herhangi bir `HAL_Delay()` kullanılmasına gerek yoktur.
 
 ---
 
-# 🛠️ Kodun Temel Mantığını Tekrar Yazmak İstersen
+# 7. 🧠 Driver'ın Çalışma Mantığı
 
-Bu driver'ı ileride sıfırdan yazmak istersen temel olarak şu yapıyı hatırlaman yeterlidir:
+Driver'ın temelinde `msTick` isimli milisaniye zaman sayacı bulunur.
 
-### 1. Hardware Timer'dan düzenli interrupt üret
-
-```text
-TIM11 → 1 ms
-```
-
-### 2. Her interrupt'ta zamanı artır
+TIM11 her 1 ms'de bir interrupt oluşturduğunda:
 
 ```c
-msTick++;
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM11)
+    {
+        msTick++;
+    }
+}
 ```
 
-### 3. Timer bilgilerini bir struct içerisinde tut
+çalışır.
+
+Böylece:
+
+```text
+TIM11
+  ↓
+1 ms Interrupt
+  ↓
+msTick++
+  ↓
+Software Timer
+  ↓
+Geçen süreyi kontrol et
+  ↓
+Süre doldu → true
+```
+
+şeklinde bir akış oluşur.
+
+Software Timer başlatıldığında mevcut `msTick` değeri `startTime` olarak kaydedilir.
+
+Daha sonra:
+
+```text
+currentTime - startTime
+```
+
+hesaplanarak geçen süre bulunur.
+
+Geçen süre `intervalTime` değerine ulaştığında timer süresi dolmuş kabul edilir.
+
+---
+
+# 8. 📦 STimer_t Yapısı
+
+Her Software Timer için:
 
 ```c
 typedef struct
@@ -552,21 +342,243 @@ typedef struct
 } STimer_t;
 ```
 
-### 4. Timer başlatılırken başlangıç zamanını kaydet
+yapısı kullanılır.
+
+### `startTime`
+
+Timer'ın başlatıldığı andaki `msTick` değeridir.
+
+### `intervalTime`
+
+Timer'ın beklemesi gereken süreyi milisaniye cinsinden tutar.
+
+### `activated`
+
+Timer'ın aktif olup olmadığını belirtir.
 
 ```text
-startTime = msTick
+true  → Aktif
+false → Pasif
 ```
 
-### 5. Geçen zamanı kontrol et
+Örneğin:
+
+```c
+STimer_t timer;
+
+Software_Timer_Set_Time(&timer, 500);
+```
+
+çağrıldığında timer 500 ms süre için aktif hale gelir.
+
+---
+
+# 9. 🔧 Driver Fonksiyonları
+
+## `software_Timer_Init()`
+
+```c
+void software_Timer_Init(TIM_HandleTypeDef *htim);
+```
+
+Hardware Timer'ı interrupt modunda başlatır.
+
+```c
+software_Timer_Init(&htim11);
+```
+
+---
+
+## `Software_Timer_Set_Time()`
+
+```c
+void Software_Timer_Set_Time(
+    STimer_t *STimer,
+    uint32_t intervalMs
+);
+```
+
+Software Timer'ı başlatır veya yeniden kurar.
+
+Yaptığı temel işlemler:
 
 ```text
-currentTime - startTime
+startTime    → Mevcut msTick
+intervalTime → İstenen süre
+activated    → true
 ```
 
-değerini istenen süreyle karşılaştır.
+Örnek:
 
-### 6. Süre dolduysa görevi çalıştır
+```c
+Software_Timer_Set_Time(&timer, 1000);
+```
+
+---
+
+## `Software_Timer_Get_Time()`
+
+```c
+uint32_t Software_Timer_Get_Time(void);
+```
+
+Güncel `msTick` değerini döndürür.
+
+Driver içerisinde zaman bilgisini almak için kullanılır.
+
+---
+
+## `Software_Timer_Clock_Check_Elapsed_Time()`
+
+```c
+bool Software_Timer_Clock_Check_Elapsed_Time(
+    STimer_t *STimer
+);
+```
+
+Timer'ın süresinin dolup dolmadığını kontrol eder.
+
+Süre dolduğunda:
+
+```c
+true
+```
+
+döndürür.
+
+Süre dolmadığında:
+
+```c
+false
+```
+
+döndürür.
+
+Süre dolduğunda timer pasif hale getirilir.
+
+Bu nedenle periyodik kullanım için timer'ın tekrar kurulması gerekir:
+
+```c
+if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
+{
+    // Görev
+
+    Software_Timer_Set_Time(&timer, 1000);
+}
+```
+
+---
+
+## `Software_Timer_Disable()`
+
+```c
+void Software_Timer_Disable(STimer_t *STimer);
+```
+
+İlgili Software Timer'ı pasif hale getirir.
+
+```c
+Software_Timer_Disable(&timer);
+```
+
+Bu işlem Hardware Timer'ı durdurmaz. Sadece ilgili Software Timer'ı devre dışı bırakır.
+
+---
+
+# 10. 🔢 Birden Fazla Software Timer
+
+Tek bir Hardware Timer üzerinden birden fazla Software Timer oluşturulabilir.
+
+Örneğin:
+
+```c
+STimer_t timer_1s;
+STimer_t timer_500ms;
+
+Software_Timer_Set_Time(&timer_1s, 1000);
+Software_Timer_Set_Time(&timer_500ms, 500);
+```
+
+Daha sonra:
+
+```c
+while (1)
+{
+    if (Software_Timer_Clock_Check_Elapsed_Time(&timer_1s))
+    {
+        // 1 saniyelik görev
+
+        Software_Timer_Set_Time(
+            &timer_1s,
+            1000
+        );
+    }
+
+    if (Software_Timer_Clock_Check_Elapsed_Time(&timer_500ms))
+    {
+        // 500 ms'lik görev
+
+        Software_Timer_Set_Time(
+            &timer_500ms,
+            500
+        );
+    }
+}
+```
+
+şeklinde kullanılabilir.
+
+Her timer aynı `msTick` zaman tabanını kullanırken kendi `startTime` ve `intervalTime` değerlerine sahip olur.
+
+---
+
+# 11. 🔄 Overflow Koruması
+
+`msTick` değişkeni `uint32_t` olduğu için maksimum:
+
+```text
+4,294,967,295
+```
+
+değerine ulaşabilir.
+
+1 ms çözünürlükte yaklaşık **49.7 gün** sonra tekrar `0` değerine döner.
+
+```text
+4,294,967,295
+        ↓
+        0
+        ↓
+        1
+        ↓
+        2
+```
+
+Driver içerisindeki elapsed-time kontrolü bu overflow durumunu ayrıca ele alır.
+
+Böylece `msTick` sıfıra döndüğünde timer hesabının bozulması önlenir.
+
+Temel amaç:
+
+```text
+Normal çalışma
+      +
+Overflow durumu
+      ↓
+Doğru geçen süre hesabı
+```
+
+şeklindedir.
+
+---
+
+# 12. 💡 Neden Bu Mimariyi Kullandık?
+
+### Non-blocking çalışma
+
+`HAL_Delay()` kullanıldığında uygulama belirli bir süre beklemek zorunda kalır.
+
+Software Timer ile:
 
 ```c
 if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
@@ -575,39 +587,140 @@ if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
 }
 ```
 
-### 7. Periyodik çalışacaksa timer'ı tekrar kur
+şeklinde kontrol yapılır ve diğer işlemler çalışmaya devam edebilir.
+
+### Birden fazla timer
+
+Her görev için ayrı Hardware Timer kullanmak yerine tek bir Hardware Timer'ın oluşturduğu `msTick` üzerinden birden fazla Software Timer oluşturulabilir.
+
+### Modüler yapı
+
+Uygulama kodu doğrudan Timer register'larıyla uğraşmaz.
+
+Sadece:
+
+```c
+Software_Timer_Set_Time()
+Software_Timer_Clock_Check_Elapsed_Time()
+Software_Timer_Disable()
+```
+
+gibi fonksiyonlarla zamanlayıcıyı kullanır.
+
+---
+
+# 13. 🛠️ Kodu Tekrar Yazmak İçin
+
+Bu driver'ı ileride sıfırdan yazmak istersen temel mantığı şu şekilde hatırlayabilirsin:
+
+### 1. Hardware Timer'ı 1 ms interrupt verecek şekilde ayarla
+
+```text
+TIM11
+  ↓
+1 ms Interrupt
+```
+
+### 2. Global zaman sayacı oluştur
+
+```c
+uint32_t msTick = 0;
+```
+
+### 3. Her interrupt'ta artır
+
+```c
+msTick++;
+```
+
+### 4. Timer bilgilerini struct içerisinde tut
+
+```c
+typedef struct
+{
+    uint32_t startTime;
+    uint32_t intervalTime;
+    bool activated;
+
+} STimer_t;
+```
+
+### 5. Timer başlatılırken başlangıç zamanını kaydet
+
+```text
+startTime = msTick
+```
+
+### 6. Geçen zamanı kontrol et
+
+```text
+currentTime - startTime
+```
+
+değerini `intervalTime` ile karşılaştır.
+
+### 7. Süre dolduysa timer'ı pasifleştir
+
+```text
+Süre doldu
+    ↓
+Disable
+    ↓
+true
+```
+
+### 8. Periyodik görev gerekiyorsa yeniden kur
 
 ```c
 Software_Timer_Set_Time(&timer, 1000);
 ```
 
-Temel fikir bundan ibarettir:
+Özet:
 
 ```text
-Hardware Timer
-      ↓
-   msTick
-      ↓
-Software Timer
-      ↓
-Elapsed Time
-      ↓
-    Task
+TIM11
+  ↓
+1 ms Interrupt
+  ↓
+msTick++
+  ↓
+Set Time
+  ↓
+Elapsed Time Check
+  ↓
+Task
 ```
 
 ---
 
-# ⚠️ Dikkat Edilmesi Gerekenler
+# 14. ⚠️ Dikkat Edilmesi Gerekenler
 
-- TIM11 interrupt'ı CubeMX'te aktif olmalıdır.
-- Timer'ın periyodu driver'ın kullandığı zaman tabanına uygun olmalıdır.
+- Timer interrupt'ı CubeMX üzerinden aktif edilmelidir.
+- Hardware Timer'ın periyodu driver'ın kullandığı zaman tabanına uygun olmalıdır.
 - `software_Timer_Init()` çağrılmadan Software Timer kullanılmamalıdır.
-- Periyodik timer kullanıyorsanız süre dolduktan sonra `Software_Timer_Set_Time()` tekrar çağrılmalıdır.
-- `Software_Timer_Disable()` yalnızca ilgili Software Timer'ı durdurur; Hardware Timer çalışmaya devam eder.
+- Periyodik timer için süre dolduktan sonra `Software_Timer_Set_Time()` tekrar çağrılmalıdır.
+- `Software_Timer_Disable()` Hardware Timer'ı değil, yalnızca ilgili Software Timer'ı durdurur.
+- `uint32_t` overflow durumu göz önünde bulundurulmalıdır.
 
 ---
 
-# 📁 Proje Yapısı
+# 15. 🔮 Geliştirilebilecek Kısımlar
+
+Driver temel bir Software Timer altyapısı olarak tasarlanmıştır.
+
+İleride:
+
+- Otomatik periyodik timer modu
+- Callback desteği
+- Mikro saniye çözünürlüğü
+- Tek seferlik / periyodik timer seçimi
+- Daha gelişmiş timer yönetimi
+
+gibi özellikler eklenebilir.
+
+---
+
+# 16. 📁 Proje Yapısı
 
 ```text
 STM32F4-Software-Timer-Driver/
@@ -621,7 +734,7 @@ STM32F4-Software-Timer-Driver/
 
 ### `Software_Timer.h`
 
-Driver'ın veri yapılarını ve fonksiyon prototiplerini içerir.
+Timer veri yapısını ve driver fonksiyonlarının prototiplerini içerir.
 
 ### `Software_Timer.c`
 
@@ -633,9 +746,9 @@ Driver'ın STM32 uygulaması içerisinde nasıl kullanılabileceğini gösterir.
 
 ---
 
-# 🎯 Sonuç
+# 17. 🎯 Sonuç
 
-Bu driver, STM32F4 üzerinde tek bir Hardware Timer kullanarak birden fazla **non-blocking Software Timer** oluşturmayı sağlar.
+Bu driver, STM32F4 üzerinde tek bir Hardware Timer interrupt'ını kullanarak birden fazla **non-blocking Software Timer** oluşturmayı sağlar.
 
 Temel kullanım:
 
@@ -657,7 +770,23 @@ while (1)
 }
 ```
 
-Bu yapı sayesinde `HAL_Delay()` kullanmadan farklı görevleri belirli zaman aralıklarında çalıştırmak mümkün olur.
+Temel çalışma mantığı:
+
+```text
+Hardware Timer
+      ↓
+1 ms Interrupt
+      ↓
+msTick++
+      ↓
+Software Timer
+      ↓
+Elapsed Time Check
+      ↓
+Task
+```
+
+Bu yapı sayesinde STM32 uygulamalarında `HAL_Delay()` kullanmadan farklı görevlerin belirli zaman aralıklarında çalıştırılması sağlanabilir.
 
 ---
 
