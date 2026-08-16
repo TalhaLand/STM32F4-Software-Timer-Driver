@@ -627,7 +627,7 @@ if (Software_Timer_Clock_Check_Elapsed_Time(&timer))
 
 ### Birden fazla timer
 
-Her görev için ayrı bir Hardware Timer kullanmak yerine tek bir Hardware Timer'ın oluşturduğu `msTick` üzerinden birden fazla Software Timer oluşturulabilir.
+Her görev için ayrı Hardware Timer kullanmak yerine tek bir Hardware Timer'ın oluşturduğu `msTick` üzerinden birden fazla Software Timer oluşturulabilir.
 
 ### Modüler yapı
 
